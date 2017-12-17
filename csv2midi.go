@@ -39,20 +39,20 @@ func makeRandomOffsets(width, length int) []int {
 	return offsets
 }
 
-func newDeltaTime(s string) (*deltatime.DeltaTime, error) {
+func newDeltaTime(offset int, s string) (*deltatime.DeltaTime, error) {
 	i, err := strconv.Atoi(s)
 	if err != nil {
 		return nil, err
 	}
-	return deltatime.New(i)
+	return deltatime.New(offset + i)
 }
 
-func parseLine(line string) (event.Event, error) {
+func parseLine(offset int, line string) (event.Event, error) {
 	s := strings.Split(line, ",")
 	if len(s) != 4 {
 		return nil, fmt.Errorf("line must be contain: delta time, type, note and velocity: %v", line)
 	}
-	deltaTime, err := newDeltaTime(s[0])
+	deltaTime, err := newDeltaTime(offset, s[0])
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +88,9 @@ func main() {
 	position := 0
 	lines := strings.Split(string(file), "\n")
 	lines = lines[0 : len(lines)-1]
-	for _, line := range lines {
-		e, err := parseLine(line)
+	offsets := makeRandomOffsets(5, len(lines)+1)
+	for n, line := range lines {
+		e, err := parseLine(offsets[n], line)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -97,7 +98,7 @@ func main() {
 		position += int(e.DeltaTime().Quantity().Uint32())
 	}
 	var defaultTimeDivision int = 960
-	remainingDeltaTime, err := deltatime.New(position % defaultTimeDivision)
+	remainingDeltaTime, err := deltatime.New(offsets[len(offsets)-1] + (position % defaultTimeDivision))
 	if err != nil {
 		log.Fatal(err)
 	}
