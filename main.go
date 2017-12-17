@@ -4,15 +4,40 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	midi "github.com/moutend/go-midi"
 	"github.com/moutend/go-midi/constant"
 	"github.com/moutend/go-midi/deltatime"
 	"github.com/moutend/go-midi/event"
 )
+
+func makeRandomOffsets(width, length int) []int {
+	position := 0
+	offsets := []int{}
+	rand.Seed(time.Now().Unix())
+
+	for i := 0; i < length-1; i++ {
+		r := rand.Intn(width)
+		p := position + r
+		if p < -width || width < p {
+			r = -r
+		}
+		offsets = append(offsets, r)
+		position += r
+	}
+	if position > 0 {
+		offsets = append(offsets, -position)
+	} else {
+		offsets = append(offsets, position)
+	}
+
+	return offsets
+}
 
 func newDeltaTime(s string) (*deltatime.DeltaTime, error) {
 	i, err := strconv.Atoi(s)
