@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -8,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	midi "github.com/moutend/go-midi"
 	"github.com/moutend/go-midi/constant"
@@ -16,43 +16,49 @@ import (
 	"github.com/moutend/go-midi/event"
 )
 
-func makeRandomOffsets(width, length int) []int {
-	position := 0
-	offsets := []int{}
-	rand.Seed(time.Now().Unix())
+var (
+	DeltaTimeRandomizer *randomizer
+	VelocityRandomizer  *randomizer
+)
 
-	for i := 0; i < length-1; i++ {
-		r := rand.Intn(width)
-		p := position + r
-		if p < -width || width < p {
-			r = -r
+type randomizer struct {
+	factor   int
+	position int
+}
+
+func (r *randomizer) Randomize(input int) int {
+	if input <= r.factor || r.factor <= 0 {
+		return input
+	}
+
+	offset := 0
+	for {
+		offset = rand.Intn(r.factor)
+		if (offset + input) < 0 {
+			continue
+		} else {
+			break
 		}
-		offsets = append(offsets, r)
-		position += r
 	}
-	if position > 0 {
-		offsets = append(offsets, -position)
-	} else {
-		offsets = append(offsets, position)
+	if r.position <= -r.factor || r.factor <= r.position {
+		offset = -offset
 	}
 
-	return offsets
+	r.position += offset
+
+	return input + offset
 }
 
-func newDeltaTime(offset int, s string) (*deltatime.DeltaTime, error) {
-	i, err := strconv.Atoi(s)
-	if err != nil {
-		return nil, err
-	}
-	return deltatime.New(offset + i)
-}
-
-func parseLine(offset int, line string) (event.Event, error) {
+func parseLine(line string) (event.Event, error) {
 	s := strings.Split(line, ",")
 	if len(s) != 4 {
 		return nil, fmt.Errorf("line must be contain: delta time, type, note and velocity: %v", line)
 	}
-	deltaTime, err := newDeltaTime(offset, s[0])
+	dt, err := strconv.Atoi(s[0])
+	if err != nil {
+		return nil, err
+	}
+	deltaTime, err := deltatime.New(DeltaTimeRandomizer.Randomize(dt))
 	if err != nil {
 		return nil, err
 	}
@@ -64,6 +70,7 @@ func parseLine(offset int, line string) (event.Event, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	eventName := strings.ToLower(s[1])
 	switch eventName {
 	case "on":
@@ -76,31 +83,55 @@ func parseLine(offset int, line string) (event.Event, error) {
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		return
-	}
-	file, err := ioutil.ReadFile(os.Args[1])
-	if err != nil {
+	var err error
+
+	if err = run(os.Args); err != nil {
 		log.Fatal(err)
+		os.Exit(1)
+	}
+}
+
+func run(args []string) error {
+	var randomizeDeltaTimeFlag int
+	var randomizeVelocityFlag int
+
+	f := flag.NewFlagSet(fmt.Sprintf("%s %s", args[0], args[1]), flag.ExitOnError)
+	f.IntVar(&randomizeDeltaTimeFlag, "delta-time", 0, "randomize delta time with given factor")
+	f.IntVar(&randomizeDeltaTimeFlag, "d", 0, "alias of --delta-time")
+	f.IntVar(&randomizeVelocityFlag, "velocity", 0, "randomize velocity with given factor")
+	f.IntVar(&randomizeVelocityFlag, "v", 0, "alias of --velocity")
+	f.Parse(args[1:])
+	if randomizeVelocityFlag < 0 || randomizeDeltaTimeFlag < 0 {
+		return fmt.Errorf("randomize factor must be positive integer")
+	}
+	DeltaTimeRandomizer = &randomizer{factor: randomizeDeltaTimeFlag}
+	VelocityRandomizer = &randomizer{factor: randomizeVelocityFlag}
+
+	if len(f.Args()) < 1 {
+		return nil
 	}
 
-	var events []event.Event
-	position := 0
+	inputFilename := f.Args()[0]
+	file, err := ioutil.ReadFile(inputFilename)
+	if err != nil {
+		return err
+	}
+
+	events := []event.Event{}
 	lines := strings.Split(string(file), "\n")
 	lines = lines[0 : len(lines)-1]
-	offsets := makeRandomOffsets(5, len(lines)+1)
-	for n, line := range lines {
-		e, err := parseLine(offsets[n], line)
+	for _, line := range lines {
+		e, err := parseLine(line)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		events = append(events, e)
-		position += int(e.DeltaTime().Quantity().Uint32())
 	}
+
 	var defaultTimeDivision int = 960
-	remainingDeltaTime, err := deltatime.New(offsets[len(offsets)-1] + (position % defaultTimeDivision))
+	remainingDeltaTime, err := deltatime.New(defaultTimeDivision - DeltaTimeRandomizer.position)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	endOfTrack, _ := event.NewEndOfTrackEvent(remainingDeltaTime)
 	events = append(events, endOfTrack)
@@ -109,9 +140,12 @@ func main() {
 	m := midi.MIDI{}
 	m.TimeDivision().SetBPM(defaultTimeDivision)
 	m.Tracks = append(m.Tracks, track)
-	fmt.Println(track)
-	if err := ioutil.WriteFile("output.mid", m.Serialize(), 0644); err != nil {
-		log.Fatal(err)
+
+	outputFilename := inputFilename
+	if strings.HasSuffix(inputFilename, ".csv") {
+		outputFilename = inputFilename[0:len(inputFilename)-4] + ".mid"
+	} else {
+		outputFilename += ".mid"
 	}
-	return
+	return ioutil.WriteFile(outputFilename, m.Serialize(), 0644)
 }

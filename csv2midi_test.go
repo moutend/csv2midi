@@ -2,17 +2,21 @@ package main
 
 import "testing"
 
-func TestMakeRandomOffsets(t *testing.T) {
-	offsets := makeRandomOffsets(5, 10)
-	if len(offsets) != 10 {
-		t.Fatalf("expected: %v actual: %v", 10, len(offsets))
+func TestRandomizer_Randomize(t *testing.T) {
+	r := &randomizer{
+		factor:   10,
+		position: 0,
 	}
 	sum := 0
-	for _, v := range offsets {
-		sum += v
+	for i := 0; i < 100; i++ {
+		v := r.Randomize(i)
+		if v < 0 {
+			t.Fatal("expected: 0 actual: %v", v)
+		}
+		d := v - i
+		sum += d
 	}
-
-	if sum != 0 {
-		t.Fatalf("expected: %v actual: %v", 0, sum)
+	if sum-r.position != 0 {
+		t.Fatalf("expected: %v actual: %v", 0, sum-r.position)
 	}
 }
