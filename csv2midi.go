@@ -83,10 +83,8 @@ func parseLine(line string) (event.Event, error) {
 }
 
 func main() {
-	var err error
-
-	if err = run(os.Args); err != nil {
-		log.Fatal(err)
+	if err := run(os.Args); err != nil {
+  log.New(os.Stderr, "error: ", 0).Fatal(err)
 		os.Exit(1)
 	}
 }
@@ -120,10 +118,10 @@ func run(args []string) error {
 	events := []event.Event{}
 	lines := strings.Split(string(file), "\n")
 	lines = lines[0 : len(lines)-1]
-	for _, line := range lines {
+	for n, line := range lines {
 		e, err := parseLine(line)
 		if err != nil {
-			return err
+			return fmt.Errorf("line %v: %v", n+1, err)
 		}
 		events = append(events, e)
 	}
