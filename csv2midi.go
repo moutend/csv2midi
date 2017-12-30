@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/csv"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -49,42 +51,107 @@ func (r *randomizer) Randomize(input int) int {
 	return input + offset
 }
 
-func parseLine(line string) (event.Event, error) {
-	s := strings.Split(line, ",")
-	if len(s) != 4 {
-		return nil, fmt.Errorf("line must be contain: delta time, type, note and velocity: %v", line)
+func parseFile(file io.Reader) ([]event.Event, error) {
+	var events []event.Event
+	var line int
+	var fields []string
+	var e event.Event
+	var err error
+
+	reader := csv.NewReader(file)
+	for {
+		fields, err = reader.Read()
+		if err != nil {
+			break
+		}
+		e, err = parseFields(fields)
+		if err != nil {
+			break
+		}
+		events = append(events, e)
+		line++
 	}
-	dt, err := strconv.Atoi(s[0])
-	if err != nil {
-		return nil, err
+	if err == io.EOF {
+		err = nil
 	}
-	deltaTime, err := deltatime.New(DeltaTimeRandomizer.Randomize(dt))
 	if err != nil {
-		return nil, err
-	}
-	note, err := constant.ParseNote(s[2])
-	if err != nil {
-		return nil, err
-	}
-	velocity, err := strconv.Atoi(s[3])
-	if err != nil {
-		return nil, err
+		err = fmt.Errorf("line %v: %v", line+1, err)
 	}
 
-	eventName := strings.ToLower(s[1])
-	switch eventName {
-	case "on":
-		return event.NewNoteOnEvent(deltaTime, 0, note, uint8(velocity))
-	case "off":
-		return event.NewNoteOffEvent(deltaTime, 0, note, uint8(velocity))
-	default:
-		return nil, fmt.Errorf("invalid line '%v'", line)
+	return events, err
+}
+
+func parseFields(fields []string) (event.Event, error) {
+	if len(fields) < 1 {
+		return nil, fmt.Errorf("specify delta time at first column")
 	}
+	i, err := strconv.Atoi(fields[0])
+	if err != nil {
+		err = fmt.Errorf("delta time %v is invalid (%v)", fields[0], err)
+		return nil, err
+	}
+	deltaTime, err := deltatime.New(i)
+	if err != nil {
+		return nil, err
+	}
+	if len(fields) == 1 {
+		err = fmt.Errorf("specify event type at second column")
+		return nil, err
+	}
+	eventName := strings.ToLower(fields[1])
+	switch eventName {
+	case "on", "note on", "note-on", "note_on", "off", "note off", "note-off", "note_off":
+		if len(fields) == 2 {
+			return nil, fmt.Errorf("specify note name at third column")
+		}
+		note, err := constant.ParseNote(fields[2])
+		if err != nil {
+			return nil, err
+		}
+		if len(fields) == 3 {
+			return nil, fmt.Errorf("specify velocity at fourth column")
+		}
+		velocity, err := strconv.Atoi(fields[3])
+		if err != nil {
+			return nil, err
+		}
+		if strings.HasSuffix(eventName, "on") {
+			return event.NewNoteOnEvent(deltaTime, 0, note, uint8(velocity))
+		} else {
+			return event.NewNoteOffEvent(deltaTime, 0, note, uint8(velocity))
+		}
+	case "cc", "control change", "control-change", "control_change":
+		if len(fields) == 2 {
+			return nil, fmt.Errorf("specify controller name at third column")
+		}
+		cc, err := constant.ParseControlName(fields[2])
+		if err != nil {
+			return nil, err
+		}
+		if len(fields) == 3 {
+			return nil, fmt.Errorf("specify value at fourth column")
+		}
+		value, err := strconv.Atoi(fields[3])
+		if err != nil {
+			return nil, err
+		}
+		return event.NewControllerEvent(deltaTime, 0, cc, uint8(value))
+	case "bend", "pitch bend", "pitch-bend", "pitch_bend":
+		if len(fields) == 2 {
+			return nil, fmt.Errorf("specify")
+		}
+		pb, err := strconv.Atoi(fields[2])
+		if err != nil {
+			return nil, err
+		}
+		return event.NewPitchBendEvent(deltaTime, 0, uint16(pb))
+	}
+	return nil, fmt.Errorf("unknown event type '%v'", eventName)
 }
 
 func main() {
 	if err := run(os.Args); err != nil {
-  log.New(os.Stderr, "error: ", 0).Fatal(err)
+		log.New(os.Stderr, "error: ", 0).Fatal(err)
 		os.Exit(1)
 	}
 }
@@ -110,20 +177,14 @@ func run(args []string) error {
 	}
 
 	inputFilename := f.Args()[0]
-	file, err := ioutil.ReadFile(inputFilename)
+	file, err := os.Open(inputFilename)
 	if err != nil {
 		return err
 	}
 
-	events := []event.Event{}
-	lines := strings.Split(string(file), "\n")
-	lines = lines[0 : len(lines)-1]
-	for n, line := range lines {
-		e, err := parseLine(line)
-		if err != nil {
-			return fmt.Errorf("line %v: %v", n+1, err)
-		}
-		events = append(events, e)
+	events, err := parseFile(file)
+	if err != nil {
+		return err
 	}
 
 	var defaultTimeDivision int = 960
