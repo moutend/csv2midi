@@ -19,6 +19,7 @@ import (
 )
 
 var (
+	channel             uint8
 	DeltaTimeRandomizer *randomizer
 	VelocityRandomizer  *randomizer
 )
@@ -116,9 +117,9 @@ func parseFields(fields []string) (event.Event, error) {
 			return nil, err
 		}
 		if strings.HasSuffix(eventName, "on") {
-			return event.NewNoteOnEvent(deltaTime, 0, note, uint8(velocity))
+			return event.NewNoteOnEvent(deltaTime, channel, note, uint8(velocity))
 		} else {
-			return event.NewNoteOffEvent(deltaTime, 0, note, uint8(velocity))
+			return event.NewNoteOffEvent(deltaTime, channel, note, uint8(velocity))
 		}
 	case "cc", "control change", "control-change", "control_change":
 		if len(fields) == 2 {
@@ -135,7 +136,7 @@ func parseFields(fields []string) (event.Event, error) {
 		if err != nil {
 			return nil, err
 		}
-		return event.NewControllerEvent(deltaTime, 0, cc, uint8(value))
+		return event.NewControllerEvent(deltaTime, channel, cc, uint8(value))
 	case "bend", "pitch bend", "pitch-bend", "pitch_bend":
 		if len(fields) == 2 {
 			return nil, fmt.Errorf("specify")
@@ -144,7 +145,7 @@ func parseFields(fields []string) (event.Event, error) {
 		if err != nil {
 			return nil, err
 		}
-		return event.NewPitchBendEvent(deltaTime, 0, uint16(pb))
+		return event.NewPitchBendEvent(deltaTime, channel, uint16(pb))
 	}
 	return nil, fmt.Errorf("unknown event type '%v'", eventName)
 }
@@ -159,16 +160,20 @@ func main() {
 func run(args []string) error {
 	var randomizeDeltaTimeFlag int
 	var randomizeVelocityFlag int
+	var channelFlag int
 
 	f := flag.NewFlagSet(fmt.Sprintf("%s %s", args[0], args[1]), flag.ExitOnError)
 	f.IntVar(&randomizeDeltaTimeFlag, "delta-time", 0, "randomize delta time with given factor")
 	f.IntVar(&randomizeDeltaTimeFlag, "d", 0, "alias of --delta-time")
 	f.IntVar(&randomizeVelocityFlag, "velocity", 0, "randomize velocity with given factor")
 	f.IntVar(&randomizeVelocityFlag, "v", 0, "alias of --velocity")
+	f.IntVar(&channelFlag, "channel", 0, "set channel number (0 to 15)")
+	f.IntVar(&channelFlag, "c", 0, "alias of --channel")
 	f.Parse(args[1:])
 	if randomizeVelocityFlag < 0 || randomizeDeltaTimeFlag < 0 {
 		return fmt.Errorf("randomize factor must be positive integer")
 	}
+	channel = uint8(channelFlag)
 	DeltaTimeRandomizer = &randomizer{factor: randomizeDeltaTimeFlag}
 	VelocityRandomizer = &randomizer{factor: randomizeVelocityFlag}
 
